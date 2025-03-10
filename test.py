@@ -9,7 +9,9 @@ class DeviceInfo(Structure):
         ("pid", c_ushort),
         ("serial", c_char * 64),
         ("bus", c_ubyte),
-        ("address", c_ubyte)
+        ("address", c_ubyte),
+        ("manufacturer", c_char * 64),
+        ("product", c_char * 64)
     ]
 
 def main():
@@ -45,10 +47,14 @@ def main():
         print(f"找到 {count} 个设备:")
         for i in range(count):
             serial_str = bytes(devices[i].serial).decode('ascii').strip('\0')
+            manufacturer_str = bytes(devices[i].manufacturer).decode('ascii').strip('\0')
+            product_str = bytes(devices[i].product).decode('ascii').strip('\0')
             print(f"设备 {i + 1}:")
             print(f"  VID: 0x{devices[i].vid:04X}")
             print(f"  PID: 0x{devices[i].pid:04X}")
             print(f"  序列号: {serial_str}")
+            print(f"  制造商: {manufacturer_str}")
+            print(f"  产品名: {product_str}")
             print(f"  总线: {devices[i].bus}")
             print(f"  地址: {devices[i].address}")
             print("-------------------")
@@ -65,18 +71,16 @@ def main():
         print("\n开始读取数据...")
         
         # 读取数据10秒
-        start_time = time.time()
         buffer = (c_ubyte * 1024)()
         total_bytes = 0
         
         time.sleep(2)
         read_bytes = dll.USB_ReadData(device_serial, buffer, len(buffer))
-        print(f'read_bytes:{read_bytes}')
         if read_bytes > 0:
             print(f"\n收到数据 ({read_bytes} 字节):")
             print(" ".join(f"{b:02X}" for b in buffer[:read_bytes]))
             total_bytes += read_bytes
-
+        time.sleep(0.001)  # 1ms延时
 
         print(f"\n总共接收: {total_bytes} 字节")
 

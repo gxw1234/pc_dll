@@ -179,29 +179,64 @@ USB_API int USB_Init(void) {
 
 // 扫描设备
 USB_API int USB_ScanDevice(device_info_t* devices, int max_devices) {
-    libusb_device **list;
-    struct libusb_device_descriptor desc;
-    ssize_t count = fn_get_device_list(ctx, &list);
-    int num_devices = 0;
+    if (!devices || max_devices <= 0) {
+        return -1;
+    }
 
-    if (count < 0) return -1;
+    libusb_device **list;
+    ssize_t count = fn_get_device_list(ctx, &list);
+    if (count < 0) {
+        return -1;
+    }
+
+    int num_devices = 0;
+    struct libusb_device_descriptor desc;
+    libusb_device_handle *handle = NULL;
+    unsigned char string_desc[256];
 
     for (ssize_t i = 0; i < count && num_devices < max_devices; i++) {
         if (fn_get_device_descriptor(list[i], &desc) == 0) {
-            if (desc.idVendor == VENDOR_ID && desc.idProduct == PRODUCT_ID) {
+            // 尝试打开设备以读取字符串描述符
+            if (fn_open(list[i], &handle) == 0) {
                 devices[num_devices].vid = desc.idVendor;
                 devices[num_devices].pid = desc.idProduct;
                 devices[num_devices].bus = fn_get_bus_number(list[i]);
                 devices[num_devices].address = fn_get_device_address(list[i]);
-                
-                // 获取序列号
-                libusb_device_handle *handle;
-                if (fn_open(list[i], &handle) == 0) {
-                    fn_get_string_descriptor_ascii(handle, desc.iSerialNumber,
-                        (unsigned char*)devices[num_devices].serial, sizeof(devices[0].serial));
-                    fn_close(handle);
+
+                // 读取序列号
+                if (desc.iSerialNumber > 0) {
+                    if (fn_get_string_descriptor_ascii(handle, desc.iSerialNumber,
+                        (unsigned char*)devices[num_devices].serial, 
+                        sizeof(devices[num_devices].serial)) <= 0) {
+                        devices[num_devices].serial[0] = '\0';
+                    }
+                } else {
+                    devices[num_devices].serial[0] = '\0';
                 }
-                
+
+                // 读取制造商字符串
+                if (desc.iManufacturer > 0) {
+                    if (fn_get_string_descriptor_ascii(handle, desc.iManufacturer,
+                        (unsigned char*)devices[num_devices].manufacturer,
+                        sizeof(devices[num_devices].manufacturer)) <= 0) {
+                        devices[num_devices].manufacturer[0] = '\0';
+                    }
+                } else {
+                    devices[num_devices].manufacturer[0] = '\0';
+                }
+
+                // 读取产品字符串
+                if (desc.iProduct > 0) {
+                    if (fn_get_string_descriptor_ascii(handle, desc.iProduct,
+                        (unsigned char*)devices[num_devices].product,
+                        sizeof(devices[num_devices].product)) <= 0) {
+                        devices[num_devices].product[0] = '\0';
+                    }
+                } else {
+                    devices[num_devices].product[0] = '\0';
+                }
+
+                fn_close(handle);
                 num_devices++;
             }
         }

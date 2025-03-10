@@ -13,11 +13,13 @@ extern "C" {
 
 // 设备信息结构体
 typedef struct {
-    unsigned short vid;
-    unsigned short pid;
-    char serial[64];
-    unsigned char bus;
-    unsigned char address;
+    unsigned short vid;          // 厂商ID
+    unsigned short pid;          // 产品ID
+    char serial[64];            // 序列号
+    unsigned char bus;          // 总线号
+    unsigned char address;      // 设备地址
+    char manufacturer[64];      // 制造商字符串
+    char product[64];          // 产品字符串
 } device_info_t;
 
 // 初始化USB系统
