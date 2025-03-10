@@ -71,6 +71,12 @@ struct libusb_device_descriptor {
 #define INTERRUPT_TIMEOUT 1000 // 超时时间(ms)
 #define BUFFER_SIZE 64        // 接收缓冲区大小
 
+// 环形缓冲区定义
+#define RING_BUFFER_SIZE 1024
+static uint8_t ring_buffer[RING_BUFFER_SIZE];
+static int write_pos = 0;
+static int total_bytes = 0;
+
 // 定义函数指针类型
 typedef int (LIBUSB_CALL *libusb_init_t)(libusb_context **ctx);
 typedef void (LIBUSB_CALL *libusb_exit_t)(libusb_context *ctx);
@@ -117,11 +123,14 @@ volatile int transfer_completed = 0;
 // 中断传输回调函数
 void LIBUSB_CALL interrupt_transfer_callback(struct libusb_transfer *transfer) {
     if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
-        printf("收到数据 (%d 字节): ", transfer->actual_length);
+        // 将数据存入环形缓冲区
         for (int i = 0; i < transfer->actual_length; i++) {
-            printf("%02X ", transfer->buffer[i]);
+            if (total_bytes < RING_BUFFER_SIZE) {
+                ring_buffer[write_pos] = transfer->buffer[i];
+                write_pos = (write_pos + 1) % RING_BUFFER_SIZE;
+                total_bytes++;
+            }
         }
-        printf("\n");
         
         // 重新提交传输请求
         fn_submit_transfer(transfer);
@@ -331,6 +340,14 @@ int main(void) {
     fn_exit(ctx);
     FreeLibrary(hLib);
     printf("\n测试完成\n");
+
+    // 打印所有接收到的数据
+    printf("\n5秒内接收到的所有数据 (%d 字节):\n", total_bytes);
+    for (int i = 0; i < total_bytes && i < RING_BUFFER_SIZE; i++) {
+        printf("%02X ", ring_buffer[i]);
+        if ((i + 1) % 16 == 0) printf("\n");
+    }
+    printf("\n");
 
     return 0;
 }
