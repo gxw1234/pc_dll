@@ -1,3 +1,6 @@
 @echo off
-chcp 65001 >nul
-gcc -finput-charset=UTF-8 -fexec-charset=UTF-8 usb_test.c -o usb_test.exe libusb-1.0.dll
+set GCC=D:\tool\cmake\cmake_zip\mingw64\bin\gcc.exe
+
+"%GCC%" -c usb_api.c -o usb_api.o
+"%GCC%" -shared usb_api.o -o usb_api.dll libusb-1.0.dll
+"%GCC%" usb_test.c -o usb_test.exe usb_api.dll libusb-1.0.dll

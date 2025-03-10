@@ -172,182 +172,59 @@ int load_usb_functions(HMODULE hLib) {
     return 1;
 }
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <windows.h>
+#include "usb_api.h"
+
 int main(void) {
-    HMODULE hLib;
-    libusb_context *ctx = NULL;
-    libusb_device **list;
-    libusb_device_handle *handle = NULL;
-    int result;
-    ssize_t count;
-    unsigned char *buffer = NULL;
-    struct libusb_transfer *transfer = NULL;
+    device_info_t devices[10];
+    unsigned char buffer[64];
+    int count, read_bytes;
 
-    // 加载 DLL
-    hLib = LoadLibrary("libusb-1.0.dll");
-    if (!hLib) {
-        printf("无法加载 libusb-1.0.dll, 错误码: %lu\n", GetLastError());
+    // 扫描设备
+    count = USB_ScanDevice(devices, 10);
+    if (count <= 0) {
+        printf("未找到设备\n");
         return 1;
     }
-    printf("1. 成功加载 libusb-1.0.dll\n");
 
-    // 加载函数
-    if (!load_usb_functions(hLib)) {
-        printf("加载函数失败\n");
-        FreeLibrary(hLib);
-        return 1;
-    }
-    printf("2. 成功加载所有函数\n");
-
-    // 初始化 libusb
-    result = fn_init(&ctx);
-    if (result < 0) {
-        printf("初始化失败: %s\n", fn_error_name(result));
-        FreeLibrary(hLib);
-        return 1;
-    }
-    printf("3. libusb 初始化成功\n");
-
-    // 设置调试级别
-    fn_set_option(ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_INFO);
-
-    // 获取设备列表
-    count = fn_get_device_list(ctx, &list);
-    if (count < 0) {
-        printf("获取设备列表失败: %s\n", fn_error_name((int)count));
-        fn_exit(ctx);
-        FreeLibrary(hLib);
-        return 1;
-    }
-    printf("4. 发现 %zd 个 USB 设备\n", count);
-
-    // 遍历并显示所有设备信息
-    printf("\n扫描 USB 设备:\n");
-    for (ssize_t i = 0; i < count; i++) {
-        libusb_device *device = list[i];
-        struct libusb_device_descriptor desc;
-        uint8_t bus = fn_get_bus_number(device);
-        uint8_t address = fn_get_device_address(device);
-
-        result = fn_get_device_descriptor(device, &desc);
-        if (result < 0) {
-            printf("获取设备描述符失败: %s\n", fn_error_name(result));
-            continue;
-        }
-
+    printf("找到 %d 个设备:\n", count);
+    for (int i = 0; i < count; i++) {
+        printf("设备 %d:\n", i + 1);
+        printf("  VID: 0x%04X\n", devices[i].vid);
+        printf("  PID: 0x%04X\n", devices[i].pid);
+        printf("  序列号: %s\n", devices[i].serial);
+        printf("  总线: %d\n", devices[i].bus);
+        printf("  地址: %d\n", devices[i].address);
         printf("-------------------\n");
-        printf("设备 %zd:\n", i + 1);
-        printf("  总线: %d, 地址: %d\n", bus, address);
-        printf("  厂商ID: 0x%04x\n", desc.idVendor);
-        printf("  产品ID: 0x%04x\n", desc.idProduct);
+    }
 
-        // 检查是否是目标设备
-        if (desc.idVendor == VENDOR_ID && desc.idProduct == PRODUCT_ID) {
-            printf("\n找到目标设备! (VID:0x%04x, PID:0x%04x)\n", VENDOR_ID, PRODUCT_ID);
-            
-            // 尝试打开设备
-            result = fn_open(device, &handle);
-            if (result < 0) {
-                printf("打开设备失败: %s\n", fn_error_name(result));
-                continue;
+    // 打开第一个设备
+    if (USB_OpenDevice(devices[0].serial) < 0) {
+        printf("打开设备失败\n");
+        return 1;
+    }
+    printf("成功打开设备\n");
+
+    // 持续接收数据5秒
+    printf("开始接收数据...\n");
+    time_t start_time = time(NULL);
+    while (time(NULL) - start_time < 5) {
+        read_bytes = USB_ReadData(devices[0].serial, buffer, sizeof(buffer));
+        if (read_bytes > 0) {
+            printf("收到数据 (%d 字节): ", read_bytes);
+            for (int i = 0; i < read_bytes; i++) {
+                printf("%02X ", buffer[i]);
             }
-            printf("成功打开设备\n");
-
-            // 尝试声明接口
-            result = fn_claim_interface(handle, 0);
-            if (result < 0) {
-                printf("声明接口失败: %s\n", fn_error_name(result));
-                fn_close(handle);
-                continue;
-            }
-            printf("成功声明接口\n");
-
-            // 分配传输缓冲区
-            buffer = (unsigned char *)malloc(BUFFER_SIZE);
-            if (!buffer) {
-                printf("内存分配失败\n");
-                fn_release_interface(handle, 0);
-                fn_close(handle);
-                continue;
-            }
-
-            // 分配传输结构
-            transfer = fn_alloc_transfer(0);
-            if (!transfer) {
-                printf("传输结构分配失败\n");
-                free(buffer);
-                fn_release_interface(handle, 0);
-                fn_close(handle);
-                continue;
-            }
-
-            // 手动设置传输参数
-            transfer->dev_handle = handle;
-            transfer->flags = 0;
-            transfer->endpoint = INTERRUPT_EP_IN;
-            transfer->type = 3;  // LIBUSB_TRANSFER_TYPE_INTERRUPT
-            transfer->timeout = INTERRUPT_TIMEOUT;
-            transfer->buffer = buffer;
-            transfer->length = BUFFER_SIZE;
-            transfer->callback = interrupt_transfer_callback;
-            transfer->user_data = NULL;
-
-            // 提交传输请求
-            result = fn_submit_transfer(transfer);
-            if (result < 0) {
-                printf("提交传输请求失败: %s\n", fn_error_name(result));
-                fn_free_transfer(transfer);
-                free(buffer);
-                fn_release_interface(handle, 0);
-                fn_close(handle);
-                continue;
-            }
-            printf("开始接收数据...\n");
-            printf("将在5秒后自动停止...\n");
-
-            // 处理事件循环
-            time_t start_time = time(NULL);
-            struct timeval tv = {1, 0};  // 1秒超时
-            while (!transfer_completed && (time(NULL) - start_time) < 5) {
-                fn_handle_events_timeout(ctx, &tv);
-            }
-
-            // 取消传输
-            if (!transfer_completed) {
-                fn_cancel_transfer(transfer);
-                struct timeval tv = {1, 0};
-                while (!transfer_completed) {
-                    fn_handle_events_timeout(ctx, &tv);
-                }
-            }
-
-            // 清理传输资源
-            fn_free_transfer(transfer);
-            free(buffer);
-
-            // 释放接口
-            fn_release_interface(handle, 0);
-            printf("已释放接口\n");
-
-            // 关闭设备
-            fn_close(handle);
-            printf("已关闭设备\n");
-            break;
+            printf("\n");
         }
+        Sleep(10); // 短暂延时，避免CPU占用过高
     }
 
-    // 清理
-    fn_free_device_list(list, 1);
-    fn_exit(ctx);
-    FreeLibrary(hLib);
+    // 关闭设备
+    USB_CloseDevice(devices[0].serial);
     printf("\n测试完成\n");
-
-    // 打印所有接收到的数据
-    printf("\n5秒内接收到的所有数据 (%d 字节):\n", total_bytes);
-    for (int i = 0; i < total_bytes && i < RING_BUFFER_SIZE; i++) {
-        printf("%02X ", ring_buffer[i]);
-        if ((i + 1) % 16 == 0) printf("\n");
-    }
-    printf("\n");
 
     return 0;
 }
