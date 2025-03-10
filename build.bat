@@ -1,3 +1,6 @@
 @echo off
-chcp 65001 >nul
-gcc -finput-charset=UTF-8 -fexec-charset=UTF-8 usb_test.c -o usb_test.exe libusb-1.0.dll
+chcp 65001
+set INCLUDE_DIR=-I.
+set DEFINES=-DUSB_EXPORTS
+gcc %INCLUDE_DIR% %DEFINES% -c usb_api.c -o usb_api.o
+gcc -shared -o usb_api.dll usb_api.o -Wl,--out-implib,libusb_api.a
